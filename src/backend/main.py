@@ -21,6 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Alembicやlifespanを導入するのがベストプラクティスではあるが、今回はテストなので省く判断をしました。
 Base.metadata.create_all(bind=engine)
 
 

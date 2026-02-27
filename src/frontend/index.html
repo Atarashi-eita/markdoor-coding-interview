@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TODO App</title>
+    <style>
+        /* 最低限のクリーンなレイアウト (要件: 4.3 UI) */
+        body {
+            font-family: sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 { text-align: center; }
+        .card {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: calc(100% - 20px);
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover { background-color: #0056b3; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover { background-color: #c82333; }
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; }
+
+        ul { list-style: none; padding: 0; }
+        li {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        /* 完了済みタスクの装飾 (要件: 4.3 UI) */
+        li.completed .task-title {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .task-details { flex-grow: 1; margin: 0 15px; }
+        .task-title { font-weight: bold; margin: 0 0 5px 0; }
+        .task-desc { margin: 0; font-size: 0.9em; color: #555; }
+        .task-actions { display: flex; gap: 5px; }
+
+        /* 編集モーダル */
+        #edit-modal {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center; align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Todo App</h1>
+
+    <div class="card">
+        <input type="text" id="add-title" placeholder="タスクのタイトル (必須、30文字以内)" maxlength="30">
+        <input type="text" id="add-desc" placeholder="詳細説明 (任意)">
+        <button onclick="createTask()">タスクを追加</button>
+    </div>
+
+    <div class="filters">
+        <button onclick="fetchTasks(null)">すべて</button>
+        <button onclick="fetchTasks(false)">未完了</button>
+        <button onclick="fetchTasks(true)">完了済み</button>
+    </div>
+
+    <ul id="task-list"></ul>
+
+    <div id="edit-modal">
+        <div class="card" style="width: 80%; max-width: 400px;">
+            <h3>タスクの編集</h3>
+            <input type="hidden" id="edit-id">
+            <input type="text" id="edit-title" placeholder="タスクのタイトル (必須、30文字以内)" maxlength="30">
+            <input type="text" id="edit-desc" placeholder="詳細説明 (任意)">
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button onclick="closeEditModal()" style="background-color: #6c757d;">キャンセル</button>
+                <button onclick="submitEditTask()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://127.0.0.1:8000/tasks";
+
+        // 初期表示で全タスクを取得
+        window.onload = () => fetchTasks(null);
+
+        // タスク一覧を取得して描画 (要件: 4.1 タスクリストの表示)
+        async function fetchTasks(isCompleted) {
+            let url = API_BASE;
+            if (isCompleted !== null) {
+                url += `?is_completed=${isCompleted}`;
+            }
+            try {
+                const response = await fetch(url);
+                const tasks = await response.json();
+                renderTasks(tasks);
+            } catch (error) {
+                alert("タスクの取得に失敗しました。サーバーが起動しているか確認してください。");
+            }
+        }
+
+        // 画面にタスクを描画
+        function renderTasks(tasks) {
+            const list = document.getElementById("task-list");
+            list.innerHTML = "";
+            tasks.forEach(task => {
+                const li = document.createElement("li");
+                if (task.is_completed) li.classList.add("completed");
+
+                li.innerHTML = `
+                    <input type="checkbox" ${task.is_completed ? "checked" : ""}
+                           onchange="toggleTaskStatus(${task.id}, ${task.is_completed})">
+                    <div class="task-details">
+                        <p class="task-title">${escapeHTML(task.title)}</p>
+                        <p class="task-desc">${task.description ? escapeHTML(task.description) : ""}</p>
+                    </div>
+                    <div class="task-actions">
+                        <button onclick="openEditModal(${task.id}, '${escapeHTML(task.title)}', '${task.description ? escapeHTML(task.description) : ""}')">編集</button>
+                        <button class="btn-danger" onclick="deleteTask(${task.id})">削除</button>
+                    </div>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        // タスクの作成 (要件: 4.1 タスクの追加, 4.5 エラー処理)
+        async function createTask() {
+            const titleInput = document.getElementById("add-title");
+            const descInput = document.getElementById("add-desc");
+            const title = titleInput.value.trim();
+            const description = descInput.value.trim() || null;
+
+            if (!title) {
+                alert("エラー: タスクタイトルを入力してください。");
+                return;
+            }
+
+            const response = await fetch(API_BASE, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title, description })
+            });
+
+            if (response.ok) {
+                titleInput.value = "";
+                descInput.value = "";
+                fetchTasks(null); // 一覧を再取得 (要件: 4.5 視覚的フィードバック)
+            } else {
+                alert("タスクの作成に失敗しました。");
+            }
+        }
+
+        // タスクの削除 (要件: 4.1 タスクの削除 - 削除前に確認を行う)
+        async function deleteTask(id) {
+            if (!confirm("本当にこのタスクを削除しますか？")) return;
+
+            const response = await fetch(`${API_BASE}/${id}`, { method: "DELETE" });
+            if (response.ok) {
+                fetchTasks(null); // 一覧を再取得
+            } else {
+                alert("タスクの削除に失敗しました。");
+            }
+        }
+
+        // タスクの状態（完了/未完了）を切り替え (要件: 4.2 タスクの状態管理)
+        async function toggleTaskStatus(id, currentStatus) {
+            const response = await fetch(`${API_BASE}/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ is_completed: !currentStatus })
+            });
+
+            if (response.ok) {
+                fetchTasks(null); // 一覧を再取得
+            }
+        }
+
+        // --- 編集用モーダルの処理 (要件: 7.2 ユースケース2) ---
+        function openEditModal(id, title, desc) {
+            document.getElementById("edit-id").value = id;
+            document.getElementById("edit-title").value = title;
+            document.getElementById("edit-desc").value = desc;
+            document.getElementById("edit-modal").style.display = "flex";
+        }
+
+        function closeEditModal() {
+            document.getElementById("edit-modal").style.display = "none";
+        }
+
+        async function submitEditTask() {
+            const id = document.getElementById("edit-id").value;
+            const title = document.getElementById("edit-title").value.trim();
+            const description = document.getElementById("edit-desc").value.trim() || null;
+
+            if (!title) {
+                alert("エラー: タスクタイトルを入力してください。");
+                return;
+            }
+
+            const response = await fetch(`${API_BASE}/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title, description })
+            });
+
+            if (response.ok) {
+                closeEditModal();
+                fetchTasks(null); // 一覧を再取得
+            } else {
+                alert("タスクの更新に失敗しました。");
+            }
+        }
+
+        // XSS対策のユーティリティ
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g,
+                tag => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+                }[tag])
+            );
+        }
+    </script>
+</body>
+</html>

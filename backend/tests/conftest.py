@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-# srcディレクトリにパスを通し、絶対パスでのインポートを可能にする
+# 環境変数で渡すか、pytest.iniで指定するべきだがコーディングテストなので省略
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from src.main import app
